@@ -2,19 +2,14 @@
 
 impute_compare = function(.dm,
                           .du,
+                          .m.imp = 10,
                           .form.string.dm = NA,
                           .form.string.du = NA,
                           .coef.of.interest.dm,
                           .coef.of.interest.du) {
   
-  # # TEMP
-  # .dm = dm
-  # .du = du 
-  # .form.string = "X3TGPAACAD ~ social_time + S1HRSHOMEWK + X1SES"
-  # browser()
-  
   imps_am_std <<- amelia( as.data.frame(.dm),
-                        m=10,
+                        m=.m.imp,
                         p2s = 0 ) # don't print output
   
   imp1 = imps_am_std$imputations$imp1
@@ -108,6 +103,7 @@ recode_hrs_var = function(varname, dat) {
                  `(5) 4 to 5 hours` = 4.5,
                  `(6) 5 or more hours` = 5.5 )
 }
+
 
 
 # INPUT/OUTPUT FNS ----------------------------------------------
@@ -206,6 +202,18 @@ vr = function(){
 
 
 # GENERIC SMALL HELPERS ----------------------------------------------
+
+# assumes that 2 columns of .corrs are x and y
+filter_corrs = function( .corrs,
+                         .contains,
+                         .min_cor_magnitude = 0){
+  
+  
+  .corrs %>% filter(str_detect(x, .contains) | str_detect(y, .contains)) %>%
+    filter( abs(r) > .min_cor_magnitude )
+  
+}
+
 
 # quick mean with NAs removed
 meanNA = function(x){

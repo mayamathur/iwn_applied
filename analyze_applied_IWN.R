@@ -20,6 +20,7 @@ to.load = c("dplyr",
             "mice",
             "gtsummary",
             "tableone",
+            "corrr",
             "Amelia")
 
 # load within installation if needed
@@ -42,79 +43,118 @@ for (pkg in to.load) {
 
 
 # get helper fns
-setwd(code.dir)
-source("helper.R")
+setwd( here() )
+source("helper_applied_IWN.R")
 
 # get fns from sim study
 setwd("/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Simulation code")
 source("helper_IWN.R")
 
+prepped.data.dir = "/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/Prepped data"
+
 # no sci notation
 options(scipen=999)
 
 
-# High School Longitudinal Study ---------------------------------------------------------------
+# Read in data  -------------------------------------------------
+
+setwd(prepped.data.dir)
+d2 = fread("prepped_data.csv")
 
 
-# ### load rda instead
-# # need to get additional variables
-# 
-# # must do this in base R by just double-clicking the rda file
-# 
-# d = da36423.0002[1:5000,]
-# 
-# keeper_prefixes = c("S1|S3|X3")
-# 
-# d2 = d %>% select(matches(keeper_prefixes)) %>%
-#   select( -matches("W3HS"))
-# 
-# library(data.table)
-# fwrite(d,"data_small.csv")
-# # end of preprocessing in base R
+# HIGH SCHOOL LONGITUDINAL STUDY ---------------------------------------------------------------
+
+#analysis_vars = c("X2TXMTH", "X3TGPAACAD", "X1SES") # interaction is too weak to work well here
+analysis_vars = c("female", "X2TXMTH", "males_better_math_cont", "public_school") #*kinda works - SAVE
+#analysis_vars = c("female", "X3TGPAACAD", "males_better_math") # also works
+
+cor(d2 %>% select(analysis_vars), use = "pairwise.complete.obs")
+
+# could make composite of the male/female variables:
+#S1ENGCOMP
+#S1MTHCOMP
+#S1SCICOMP
+
+du = d2 %>% select(analysis_vars) %>% na.omit
+dim(du)
+
+names(du) = c("A1", "B1", "C1", "D1")
+cor(du)
+
+any(is.na(du$D1))
+
+# straight from sim study, DAG 1K
+du = du %>% rowwise() %>%
+  mutate( 
+    RA = rbinom( n = 1,
+                 prob = 0.5, # this variable is MCAR
+                 size = 1 ),
+    RB = rbinom( n = 1,
+                 prob = 0.5, # this variable is MCAR
+                 size = 1 ),
+    
+    RC = rbinom( n = 1,
+                 prob = expit(2*C1),
+                 size = 1 ),
+    
+    RD = 1, # no missingness on this one
+    
+    A = ifelse(RA == 0, NA, A1),
+    B = ifelse(RB == 0, NA, B1),
+    C = ifelse(RC == 0, NA, C1),
+    D = ifelse(RD == 0, NA, D1) )
+
+cor(du)
+
+# will only work for binary C
+du %>% group_by(C1) %>%
+  summarise(mean(RC))
+
+di_std = du %>% select(A, B, C, D)
+
+# # remove any completely missing observations
+# di_std = di_std %>% filter( !(is.na(A) & is.na(B) & is.na(C)) )
+# dim(di_std); dim(du)
+
+colMeans(is.na(di_std))
+
+# EEMM
+#interaction is close to null in imputations
+impute_compare(.dm = di_std,
+               .du = du,
+               .form.string.dm = "B ~ A*C",
+               .coef.of.interest.dm = "A:C",
+               .form.string.du = "B1 ~ A1*C1",
+               .coef.of.interest.du = "A1:C1" )
+
+# just for fun: also include public school
+impute_compare(.dm = di_std,
+               .du = du,
+               .form.string.dm = "B ~ A*C + D",
+               .coef.of.interest.dm = "A:C",
+               .form.string.du = "B1 ~ A1*C1 + D",
+               .coef.of.interest.du = "A1:C1" )
+
+# still using A,B,C in imputation model here
+impute_compare(.dm = di_std,
+               .du = du,
+               .form.string.dm = "B ~ A",
+               .coef.of.interest.dm = "A",
+               .form.string.du = "B1 ~ A1",
+               .coef.of.interest.du = "A1" )
+
+# impute without C in the model
+# might become more efficient?
+di_ours = di_std %>% select(A,B,D)
+dim(di_ours)
+impute_compare(.dm = di_ours,
+               .du = du,
+               .form.string.dm = "B ~ A",
+               .coef.of.interest.dm = "A",
+               .form.string.du = "B1 ~ A1",
+               .coef.of.interest.du = "A1" )
 
 
-# pre-processing in RStudio
-
-setwd("/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/ICPSR_36423 2/DS0002")
-
-d2 = fread("interm_1.csv")
-
-# missing values
-#@will need to check if these truly are missing values for all analysis vars
-d2 = d2 %>%  mutate_if( is.numeric,
-                        list(~ case_when(. %in% c(-9, -8, -7, -5, -4, -1) ~ NA_real_, TRUE ~ .))
-)
-
-# remove vars that are always NA
-d2 = d2 %>% select( -where(~ all(is.na(.)) ) )
+#bm: should probably average over a large number of imputations
 
 
-hr_vars = stringsWith(pattern = "S1HR",
-                      names(d2))
-
-# recode vars
-for (.var in hr_vars) {
-  d2[[.var]] = recode_hrs_var(varname = .var,
-                              dat = d2)
-}
-
-View(d2 %>% select(hr_vars))
-
-d2$screen_time = d2$S1HRVIDEO + d2$S1HRTV + d2$S1HRONLINE
-
-d2$social_time = d2$S1HRFAMILY + d2$S1HRFRIENDS
-
-d2$female = dplyr::recode( d2$S1SEX,
-                           `(1) Male` = 0,
-                           `(2) Female` = 1)
-table(d2$female, d2$S1SEX)  
-
-
-d2$males_better_math = dplyr::recode( d2$S1MTHCOMP,
-                                      `(1) Females are much better` = 0,
-                                      `(2) Females are somewhat better` = 0,
-                                      `(3) Females and males are the same` = 0,
-                                      `(4) Males are somewhat better` = 1,
-                                      `(5) Males are much better` = 1)
-
-table(d2$S1MTHCOMP, d2$males_better_math)
