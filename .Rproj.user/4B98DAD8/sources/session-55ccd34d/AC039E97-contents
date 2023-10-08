@@ -1,0 +1,596 @@
+
+# PRELIMINARIES ---------------------------------------------------------------
+
+# This script uses renv to preserve the R environment specs (e.g., package versions.)
+library(renv)
+# run this if you want to reproduce results using the R environment we had:
+# renv::restore()
+
+to.load = c("dplyr",
+            "data.table",
+            "purrr",
+            "tidyr",
+            "stringr",
+            "tibble",
+            "ggplot2",
+            "testthat",
+            "plotly",
+            "htmlwidgets", # for saving plotly
+            "here",
+            "haven",
+            "mice",
+            "gtsummary",
+            "tableone",
+            "Amelia")
+
+# load within installation if needed
+for (pkg in to.load) {
+  
+  cat( paste("\nAbout to try loading package", pkg) )
+  
+  tryCatch({
+    # eval below needed because library() will otherwise be confused
+    # https://www.mitchelloharawild.com/blog/loading-r-packages-in-a-loop/
+    eval( bquote( library( .(pkg) ) ) )
+  }, error = function(err) {
+    install.packages(pkg)
+  })
+  
+}
+
+# run this only if you want to update the R environment specs
+# renv::snapshot()
+
+
+# get helper fns
+setwd(code.dir)
+source("helper.R")
+
+# get fns from sim study
+setwd("/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Simulation code")
+source("helper_IWN.R")
+
+# no sci notation
+options(scipen=999)
+
+
+
+# PERKINS ---------------------------------------------------------------
+
+
+data.dir = here("Perkins dataset")
+setwd(data.dir)
+
+# for some reason, age and bmi are both divided by 100
+# confirmed via Table 1
+# perhaps just for interpretation of regression coefficients?
+d = haven::read_sas("full.sas7bdat")
+
+d$age = 100*d$age
+d$bmi = 100*d$bmi
+
+# expect no missing data
+missing_proportions <- d %>%
+  summarise_all(~ mean(is.na(.))) %>%
+  gather(variable, proportion_missing) %>%
+  arrange(desc(proportion_missing))
+
+print(missing_proportions)
+# :)
+
+
+# correlation matrix
+temp = d %>% select(smoke, abort,  # A and Y
+                    bmi, white, black, other, age ) # confounders
+
+round( cor(temp), 3 )
+# most strongly correlated confounders: age and bmi (only r=0.23, though)
+#**the covariates are all barely correlated with abortion, so I don't think this example will work very well
+
+
+
+
+
+# OWOM ---------------------------------------------------------------
+
+data.dir = "/Users/mmathur/Dropbox/Personal computer/Independent studies/2022/Outcome-wide overweight & mortality (OWOM)/Linked to OSF (OWOM)/Data/Prepped data"
+
+code.dir = "/Users/mmathur/Dropbox/Personal computer/Independent studies/2022/Outcome-wide overweight & mortality (OWOM)/Linked to OSF (OWOM)/Code"
+
+
+# get helper fns
+setwd(code.dir)
+source("helper_OWOM.R")
+
+# load package, set var names, etc.
+prelims()
+
+covars = c("age92", "sex", "reRACE", "income92", "wealth592", "redegree", "employment92", "healthinsurance92", "reRegion92", "servattend92", "diabetes92", "hypertension92", "stroke92", "cancer92", "heartdisease92", "lungdisease92", "arthritis92", "physicallimitations92", "chronicpain92", "binge92", "currentsmoker92", "exercise92", "depressivesx92", "socialsupport92")
+
+
+
+# get data
+setwd(prepped.data.dir)
+# main analysis dataset
+#@ in future, could use obese and ow together
+d = fread("d_cc_not_obese.csv",
+          na.strings = "")
+
+# for sanity checks and Table 1: 
+d1 = fread("d1_with_miss_all_bmi.csv",
+           na.strings = "")
+d_all_bmi = fread("d_cc_all_bmi.csv",
+                  na.strings = "")
+
+# sanity checks
+expect_equal(nrow(d_all_bmi), 8111)
+
+# no one is missing baseline BMI
+mean(is.na(d$overweightobese92))
+
+
+# subsets by baseline weight
+dn = d %>% filter(overweightobese92 == 1)
+do = d %>% filter(overweightobese92 == 2)
+
+
+# ~ Correlations of all covariates, A, and Y  ---------------------------------------------------------------
+temp = d1 %>% select( all_of(covars), died9620, bmi96)
+cor(temp)
+
+
+corrs = temp %>%
+  corrr::correlate( use = "pairwise.complete.obs" ) %>%
+  corrr::stretch() %>%
+  arrange(desc(r)) %>%
+  group_by(r) %>%
+  filter(row_number()==1)
+
+corrs$r = round(corrs$r, 2)
+
+corrs = corrs[ !is.na(corrs$r), ]
+View(corrs)
+
+# variables associated with BMI
+View( corrs %>% filter(x == "bmi96" | y == "bmi96" ) )
+
+# with mortality
+View( corrs %>% filter(x == "died9620" | y == "died9620" ) )
+
+# with smoking, a promising confounder
+View( corrs %>% filter(x == "currentsmoker92" | y == "currentsmoker92" ) )
+
+# with exercise
+View( corrs %>% filter(x == "exercise92" | y == "exercise92" ) )
+
+# ~ Explore ---------------------------------------------------------------
+
+# didn't work:"physicallimitations92", "chronicpain92" as confounders
+
+# mo_crude = lm( formula = died9620 ~ overweightobese96_cat,
+#                data = do )
+# ( bhat_mo_crude = as.numeric( coef(mo_crude)["overweightobese96_catb.ow"] ) )
+# # RD = -0.10!!
+# mo_crude %>% tbl_regression(tidy_fun = tidy_robust)
+
+# start from a dataset with no missingness on A or Y
+du = d1 %>% filter(!is.na(died9620)) %>%
+  select("wealth592", "exercise92", "died9620") %>%
+  na.omit
+  # for ease of looking at correlations, only keep 2 BMI categories and code as numeric
+  # filter(overweightobese96_cat != "b.ow") %>% 
+  # rowwise %>%
+  # #@temporarily using "ow" for obese category
+  # mutate( ow = ifelse(overweightobese96_cat == "c.obese", 1, 0 ) ) %>%
+  # select( -"overweightobese96_cat" )
+
+colMeans(is.na(du))
+
+
+dm = file_match(du,
+                var1 = "exercise92",
+                var2 = "wealth592" ) 
+
+head(dm)
+
+
+impute_compare(.dm = dm,
+               .du = du,
+               .form.string = "died9620 ~ wealth592 + exercise92",
+               .coef.of.interest = "exercise92")
+
+
+
+
+# depressivesx92: correlation of 0.35 - 0.37 with physical limitations and chronic pain
+# and 0.12 with died9620
+# bmi with depressivesx92: only 0.09 correlation
+# depression and mortality: 0.12
+
+# race and wealth: -0.29 but race isn't associated with mortality
+
+# diabetes is pretty strongly correlated with mortality and with BMI (0.18 - 0.20)
+# also correlated with physical limitations, hypertension, wealth (negative)
+# could consider dichotomizing, e.g., BMI to further increase correlation?
+
+
+# High School Longitudinal Study ---------------------------------------------------------------
+
+
+### this dataset seems to be questions of counselors about school in general
+library(readxl)
+setwd("/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/ICPSR_36423/DS0001")
+d1 = read_excel("36423-0001-Data.xlsx")
+
+# remove certain kinds of variables
+# W1: analytic weights
+# variables that are all -5 (suppressed for anonymity)
+d2 = d1 %>% select( -starts_with("W1") ) %>%
+  select( -where(~ all(. == -5) ) )
+
+# missing values
+d2 = d2 %>%  mutate_all(
+  list(~ case_when(. %in% c(-9, -8, -7) ~ NA_real_, TRUE ~ .))
+)
+
+
+
+### the other dataset
+# takes forever to read in and says "Error: unexpected end of data"
+setwd("/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/ICPSR_36423/DS0002")
+# d1 = read_excel("36423-0002-Data.xlsx")
+
+
+file_path = "/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/ICPSR_36423/DS0002/36423-0002-Data-downsampled.xlsx"
+d1 <- read_excel(file_path)
+
+# Now you have a sampled subset of rows in the sample_data data frame
+
+
+
+# W1: analytic weights
+# variables that are all -5 (suppressed for anonymity)
+d2 = d1 %>% select( -starts_with("W1") ) %>%
+  select( -where(~ all(. == -5) ) )
+
+# missing values
+#@will need to check if these truly are missing values for all analysis vars
+d2 = d2 %>%  mutate_all(
+  list(~ case_when(. %in% c(-9, -8, -7, -4, -1) ~ NA_real_, TRUE ~ .))
+)
+
+
+
+library(corrr)
+corrs = d2 %>%
+  corrr::correlate( use = "pairwise.complete.obs" ) %>%
+  corrr::stretch() %>%
+  arrange(desc(r)) %>%
+  group_by(r) %>%
+  filter(row_number()==1)
+
+corrs$r = round(corrs$r, 2)
+
+corrs = corrs[ !is.na(corrs$r), ]
+View(corrs)
+
+# focus on student variables and math teacher variables
+keeper_prefixes = c("S1|S2|M1")
+corrs2 = corrs %>% filter(str_detect(x, keeper_prefixes) | str_detect(y, keeper_prefixes))
+View(corrs2)
+
+write.xlsx(corrs2, "corrs2.xlsx")
+
+
+### play with complete-case analyses
+
+d2$female = d2$S1SEX - 1
+
+# see pg 379 of codebook (math or science)
+d2$stem_fave = d2$S1FAVSUBJ %in% c(3,6)
+
+
+vars = c("S3FIELD_STEM", 
+         "S2APSCIENCE",
+         "female", "stem_fave")
+
+CreateTableOne(data = d2,
+               vars = vars)
+
+mod = lm( formula = S3FIELD_STEM ~ S2APSCIENCE * female,
+          data = d2 )
+mod %>% tbl_regression(tidy_fun = tidy_robust)
+
+
+cor( d2 %>% select(all_of(vars)), use = "complete.obs" )
+
+
+
+# assumes that 2 columns of .corrs are x and y
+filter_corrs = function( .corrs,
+                         .contains,
+                         .min_cor_magnitude = 0){
+  
+  
+  .corrs %>% filter(str_detect(x, .contains) | str_detect(y, .contains)) %>%
+    filter( abs(r) > .min_cor_magnitude )
+  
+}
+
+
+filter_corrs(.corrs = corrs2,
+             .contains = "S1HRTV")
+
+t = filter_corrs(.corrs = corrs2,
+                 .contains = "S1HRACTIVITY",
+                 .min_cor_magnitude = 0.2)
+
+View(t)
+
+
+
+t = filter_corrs(.corrs = corrs2,
+                 .contains = "X1SES",
+                 .min_cor_magnitude = 0.2)
+
+View(t)
+
+
+
+
+
+# ### load rda instead
+# # need to get additional variables
+# 
+# # must do this in base R by just double-clicking the rda file
+# 
+# d = da36423.0002[1:5000,]
+# 
+# keeper_prefixes = c("S1|S3|X3")
+# 
+# d2 = d %>% select(matches(keeper_prefixes)) %>%
+#   select( -matches("W3HS"))
+# 
+# library(data.table)
+# fwrite(d,"data_small.csv")
+# # end of preprocessing in base R
+
+
+# pre-processing in RStudio
+
+setwd("/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/ICPSR_36423 2/DS0002")
+
+d2 = fread("interm_1.csv")
+
+# missing values
+#@will need to check if these truly are missing values for all analysis vars
+d2 = d2 %>%  mutate_if( is.numeric,
+                        list(~ case_when(. %in% c(-9, -8, -7, -5, -4, -1) ~ NA_real_, TRUE ~ .))
+)
+
+# remove vars that are always NA
+d2 = d2 %>% select( -where(~ all(is.na(.)) ) )
+
+
+hr_vars = stringsWith(pattern = "S1HR",
+                      names(d2))
+
+# recode vars
+for (.var in hr_vars) {
+  d2[[.var]] = recode_hrs_var(varname = .var,
+                              dat = d2)
+}
+
+View(d2 %>% select(hr_vars))
+
+d2$screen_time = d2$S1HRVIDEO + d2$S1HRTV + d2$S1HRONLINE
+
+d2$social_time = d2$S1HRFAMILY + d2$S1HRFRIENDS
+
+d2$female = dplyr::recode( d2$S1SEX,
+                           `(1) Male` = 0,
+                           `(2) Female` = 1)
+table(d2$female, d2$S1SEX)  
+
+
+d2$males_better_math = dplyr::recode( d2$S1MTHCOMP,
+                           `(1) Females are much better` = 0,
+                           `(2) Females are somewhat better` = 0,
+                           `(3) Females and males are the same` = 0,
+                           `(4) Males are somewhat better` = 1,
+                           `(5) Males are much better` = 1)
+
+table(d2$S1MTHCOMP, d2$males_better_math)
+
+
+### time usage and outcomes
+
+# vars = c("S1HRONLINE", 
+#          "S1HRTV",
+#          "S1HRFAMILY",
+#          "S1HRVIDEO",
+#          "S1HRFRIENDS",
+#          "S1HRMHOMEWK",
+#          "X1SES",  #@this might include imputed values
+#          "P1HIDEG1",
+#          "P1HIDEG2",
+#          "female",
+#          "S2SUREBA",
+#          "X3TGPAACAD"
+#          )
+# 
+# covars = c("S1HRONLINE", 
+#            "S1HRTV",
+#            "S1HRFAMILY",
+#            "S1HRVIDEO",
+#            "S1HRFRIENDS",
+#            "S1HRMHOMEWK",
+#            "X1SES",  #@this might include imputed values
+#            "P1HIDEG1",
+#            "P1HIDEG2",
+#            "S1SEX")
+
+covars = c("social_time", "S1HRSHOMEWK", "X1SES", "female")
+analysis_vars = c(covars, "X3TGPAACAD", "social_time")
+
+CreateTableOne(data = d2,
+               vars = analysis_vars)
+
+cor( d2 %>% select(all_of(analysis_vars)), use = "complete.obs" )
+
+
+( string = paste( "X3TGPAACAD ~ ", paste(covars, collapse=" + ") ) )
+
+mod = lm( formula = eval(expr = string),
+          data = d2 )
+mod %>% tbl_regression()
+
+
+( string = paste( "X3TGPAACAD ~ female*I(S1HRVIDEO + S1HRTV + S1HRONLINE) +
+                  female*I(S1HRMHOMEWK + S1HRSHOMEWK + S1HROTHHOMWK)" ) )
+
+( string = paste( "X3TGPAACAD ~ I(S1HRVIDEO + S1HRTV + S1HRONLINE)*X1SES +
+                  I(S1HRMHOMEWK + S1HRSHOMEWK + S1HROTHHOMWK)*X1SES + 
+                  S1HRACTIVITY*X1SES" ) )
+
+
+# pretty good
+( string = paste( "X3TGPAACAD ~ S1MTESTS*X1SES" ) )
+( string = paste( "X3TGPAACAD ~ social_time*X1SES" ) ) # could work; weak interaction
+
+
+( string = paste( "X3TGPAACAD ~ S1MTHCOMP*female" ) )
+
+( string = paste( "X3TGPAACAD ~ males_better_math*female" ) ) #**this one is interesting!
+
+# outcome: math theta score
+#**this one is interesting!
+#**try this one
+( string = paste( "X2TXMTH ~ males_better_math*X3TGPAACAD" ) ) # EMM analysis law
+( string = paste( "X2TXMTH ~ female" ) )   # simple analysis law
+
+mod = lm( formula = eval(expr = string),
+          data = d2 )
+mod %>% tbl_regression()
+
+### NMAR EMM
+analysis_vars = c("X2TXMTH", "males_better_math", "X3TGPAACAD")
+  
+  
+du = d2 %>% select(analysis_vars) %>% na.omit
+dm = du
+
+# extreme NMAR
+pmiss = rep(0.1, nrow(du))
+pmiss[ du$males_better_math == 1 ] = 0.6
+
+miss = rbinom( n = nrow(du),
+               size = 1, 
+               prob = pmiss)
+
+# for binary variable
+dm$males_better_math[ miss == 1 ] = rep(NA)
+mean(is.na(dm$males_better_math))
+mean(dm$males_better_math, na.rm = TRUE)
+mean(du$males_better_math)
+
+# check
+mean( is.na( dm$males_better_math[ du$males_better_math == 1 ] ) ) 
+mean( is.na( dm$males_better_math[ du$males_better_math == 0 ] ) ) 
+
+( string = paste( "X2TXMTH ~ female*X3TGPAACAD" ) ) # EMM analysis law
+
+impute_compare(.dm = dm,
+               .du = du,
+               .form.string = string,
+               .coef.of.interest = "males_better_math:X3TGPAACAD")
+
+impute_compare(.dm = dm,
+               .du = du,
+               .form.string = string,
+               .coef.of.interest = "female")
+
+
+##### try with more highly correlated variables and all are continuous?
+# X2TXMTH & X3TGPAACAD: 0.59
+# list them as A, B, C (EMM)
+#analysis_vars = c("X2TXMTH", "X3TGPAACAD", "X1SES") # interaction is too weak to work well here
+analysis_vars = c("female", "X2TXMTH", "males_better_math") #*kinda works - SAVE
+#analysis_vars = c("female", "X3TGPAACAD", "males_better_math") # also works
+
+# could make composite of the male/female variables:
+#S1ENGCOMP
+#S1MTHCOMP
+#S1SCICOMP
+
+du = d2 %>% select(analysis_vars) %>% na.omit
+
+names(du) = c("A1", "B1", "C1")
+cor(du)
+
+# straight from sim study, DAG 1K
+du = du %>% rowwise() %>%
+  mutate( 
+    RA = rbinom( n = 1,
+                 prob = 0.5, # this variable is MCAR
+                 size = 1 ),
+    RB = rbinom( n = 1,
+                 prob = 0.5, # this variable is MCAR
+                 size = 1 ),
+    
+    RC = rbinom( n = 1,
+                 prob = expit(2*C1),
+                 size = 1 ),
+    A = ifelse(RA == 0, NA, A1),
+    B = ifelse(RB == 0, NA, B1),
+    C = ifelse(RC == 0, NA, C1) )
+
+cor(du)
+
+# will only work for binary C
+du %>% group_by(C1) %>%
+  summarise(mean(RC))
+
+di_std = du %>% select(A, B, C)
+
+# remove any completely missing observations
+di_std = di_std %>% filter( !(is.na(A) & is.na(B) & is.na(C)) )
+dim(di_std); dim(du)
+
+colMeans(is.na(di_std))
+
+# EEMM
+#interaction is close to null in imputations
+impute_compare(.dm = di_std,
+               .du = du,
+               .form.string.dm = "B ~ A*C",
+               .coef.of.interest.dm = "A:C",
+               .form.string.du = "B1 ~ A1*C1",
+               .coef.of.interest.du = "A1:C1" )
+
+# still using A,B,C in imputation model here
+
+
+impute_compare(.dm = di_std,
+               .du = du,
+               .form.string.dm = "B ~ A",
+               .coef.of.interest.dm = "A",
+               .form.string.du = "B1 ~ A1",
+               .coef.of.interest.du = "A1" )
+
+# impute without C in the model
+# might become more efficient?
+di_ours = di_std %>% filter( !(is.na(A) & is.na(B) ) ) %>%
+  select(A,B)
+dim(di_ours)
+impute_compare(.dm = di_ours,
+               .du = du,
+               .form.string.dm = "B ~ A",
+               .coef.of.interest.dm = "A",
+               .form.string.du = "B1 ~ A1",
+               .coef.of.interest.du = "A1" )
+
+
+#bm: this example seems pretty good! but need to deal with people who have all vars missing. maybe include a fully observed, useless variable in imputation model?
+
+
