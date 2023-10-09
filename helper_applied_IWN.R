@@ -1,67 +1,103 @@
 
 # expects that the only nominal variable, if any, is public school
+# .noms = list of nominal vars in .dm (for Amelia)
+# .noms = list of ordinal vars in .dm (for Amelia)
 impute_compare = function(.dm,
                           .du,
+                          
                           .m.imp = 10,
+                          .noms = NULL,
+                          .ords = NULL,
+                          
+                          .run.mice = TRUE,
+                          .run.amelia = TRUE,
+                          
                           .model = "OLS",
                           .form.string.dm = NA,
                           .form.string.du = NA,
                           .coef.of.interest.dm,
                           .coef.of.interest.du) {
   
-  # define nominal vars
-  noms = NULL
-  if ( "public_school" %in% names(.dm) ) noms = "public_school" 
   
-  imps_am_std <<- amelia( as.data.frame(.dm),
-                        m=.m.imp,
-                        noms = noms,
-                        p2s = 0 ) # don't print output
-  
-  
-  imp1 = imps_am_std$imputations$imp1
-  
-  if ( any(is.na(imp1)) ) {
-    message("MI left NAs in dataset - what a butt")
-    imps_am_std = NULL
+  ### Imputation: Amelia
+  if ( .run.amelia == TRUE ) {
+    imps_am_std <<- amelia( as.data.frame(.dm),
+                            m=.m.imp,
+                            noms = .noms,
+                            ords = .ords,
+                            p2s = 0 ) # don't print output
+    
+    imp1 = imps_am_std$imputations$imp1
+    
+    if ( any(is.na(imp1)) ) {
+      message("Amelia left NAs in dataset - what a butt")
+      imps_am_std = NULL
+    }
   }
-
   
-  ### Correlation in imputations vs. underlying
-
-  # correlation in imputations
-  # indeed, correlation between 2 confoounders is close to 0
-  cat("\n\n ******** COR MATRIX: IMPS\n")
-  print( imps_cor(imps_am_std) )
   
-  # compare to underlying dataset
-  cat("\n\n ******** COR MATRIX: UNDERLYING\n")
-  print( round( cor(.du), 3 ) )
   
-
-if ( ! is.na(.form.string.dm) & !is.na(.form.string.du) ) {
-  
-  cat("\n\n ******** REGRESSION: IMPS\n")
-  print( fit_regression(form_string = .form.string.dm,
-                 model = .model,
-                 coef_of_interest = .coef.of.interest.dm,
-                 miss_method = "MI",
-                 du = NULL,
-                 imps = imps_am_std) )
-  
-  cat("\n\n ******** REGRESSION: UNDERLYING\n")
-  if ( .model == "OLS" ) {
-    mod = lm( formula = eval(expr = .form.string.du),
-              data = .du )
+  ### Imputation: MICE
+  if ( .run.mice == TRUE ) {
+    imps_mice_std <<- mice( as.data.frame(.dm),
+                            maxit = 200,  # as in sim study
+                            m = .m.imp,
+                            #method = p$mice_method,
+                            printFlag = FALSE )
+    
+    # sanity check
+    imp1 = complete(imps_mice_std, 1)
+    
+    if ( any(is.na(imp1)) ) {
+      message("MICE left NAs in dataset - what a butt")
+      imps_mice_std = NULL
+    }
   }
-  if ( .model == "logistic" ) {
-    mod = glm( formula = eval(expr = .form.string.du),
-               family = "binomial",
-              data = .du )
-  }
+  
+  # ### Correlation in imputations vs. underlying
+  # # SAVE for debugging, but not printed
+  # 
+  # # correlation in imputations
+  # # indeed, correlation between 2 confounders is close to 0
+  # cat("\n\n ******** COR MATRIX: IMPS\n")
+  # print( imps_cor(imps_am_std) )
+  # 
+  # # compare to underlying dataset
+  # cat("\n\n ******** COR MATRIX: UNDERLYING\n")
+  # print( round( cor(.du), 3 ) )
+  
+  
+  ### Fit analysis models
+  if ( ! is.na(.form.string.dm) & !is.na(.form.string.du) ) {
+    
+    cat("\n\n ******** REGRESSION: UNDERLYING\n")
+    print( fit_regression(form_string = .form.string.du,
+                          model = .model,
+                          coef_of_interest = .coef.of.interest.du,
+                          miss_method = "CC",
+                          du = .du) )
+    
+    if ( .run.amelia == TRUE ) {
+      cat("\n\n ******** REGRESSION: AMELIA\n")
+      print( fit_regression(form_string = .form.string.dm,
+                            model = .model,
+                            coef_of_interest = .coef.of.interest.dm,
+                            miss_method = "MI",
+                            du = NULL,
+                            imps = imps_am_std) )
+    }
+    
+    if ( .run.mice == TRUE ) {
+      cat("\n\n ******** REGRESSION: MICE\n")
+      print( fit_regression(form_string = .form.string.dm,
+                            model = .model,
+                            coef_of_interest = .coef.of.interest.dm,
+                            miss_method = "MI",
+                            du = NULL,
+                            imps = imps_mice_std) )
+    }
 
-  summary(mod)
-}
+  }
 }
 
 
