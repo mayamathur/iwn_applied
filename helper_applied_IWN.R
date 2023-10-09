@@ -8,6 +8,7 @@ impute_compare = function(.dm,
                           .m.imp = 10,
                           .noms = NULL,
                           .ords = NULL,
+                          .imp.seed = NULL,
                           
                           .run.mice = TRUE,
                           .run.amelia = TRUE,
@@ -21,6 +22,8 @@ impute_compare = function(.dm,
   
   ### Imputation: Amelia
   if ( .run.amelia == TRUE ) {
+    
+    if ( !is.null(.imp.seed) ) set.seed(.imp.seed)
     imps_am_std <<- amelia( as.data.frame(.dm),
                             m=.m.imp,
                             noms = .noms,
@@ -39,6 +42,8 @@ impute_compare = function(.dm,
   
   ### Imputation: MICE
   if ( .run.mice == TRUE ) {
+    
+    if ( !is.null(.imp.seed) ) set.seed(.imp.seed)
     imps_mice_std <<- mice( as.data.frame(.dm),
                             maxit = 200,  # as in sim study
                             m = .m.imp,

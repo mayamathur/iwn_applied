@@ -56,6 +56,9 @@ prepped.data.dir = "/Users/mmathur/Dropbox/Personal computer/Independent studies
 # no sci notation
 options(scipen=999)
 
+# seed for all stochastic things below
+seed = 123
+
 
 # Read in data  -------------------------------------------------
 
@@ -98,9 +101,9 @@ dim(du)
 names(du) = c("A1", "B1", "C1", "D1")
 cor(du)
 
-any(is.na(du$D1))
 
 # straight from sim study, DAG 1K
+set.seed(seed)
 du = du %>% rowwise() %>%
   mutate( 
     RA = rbinom( n = 1,
@@ -141,8 +144,11 @@ colMeans(is.na(di_std))
 # interaction is close to null in imputations
 impute_compare(.dm = di_std,
                .du = du,
+               
                .ords = "C",
                .noms = c("A", "D"),
+               .imp.seed = seed,
+               
                .form.string.dm = "B ~ A*C",
                .coef.of.interest.dm = "A:C",
                .form.string.du = "B1 ~ A1*C1",
@@ -153,8 +159,11 @@ impute_compare(.dm = di_std,
 # still using A,B,C in imputation model here
 impute_compare(.dm = di_std,
                .du = du,
+               
                .ords = "C",
                .noms = c("A", "D"),
+               .imp.seed = seed,
+               
                #.run.mice = FALSE,
                .form.string.dm = "B ~ A",
                .coef.of.interest.dm = "A",
@@ -167,7 +176,10 @@ di_ours = di_std %>% select(A,B,D)
 dim(di_ours)
 impute_compare(.dm = di_ours,
                .du = du,
+               
                .noms = c("A", "D"),
+               .imp.seed = seed,
+               
                .form.string.dm = "B ~ A",
                .coef.of.interest.dm = "A",
                .form.string.du = "B1 ~ A1",
@@ -239,9 +251,6 @@ d2 %>% select(analysis_vars) %>%
   summarise_all( function(x) mean(is.na(x)))
 
 
-# du = d2 %>% select(analysis_vars)
-# du$noise = rnorm(n=nrow(du))  #@TEMPORARY way to have a useless, but complete, aux variable to prevent warnings
-
 # ~ Impose missingness  -------------------------------------------------
 
 du = d2 %>% select(analysis_vars) %>% na.omit
@@ -249,21 +258,23 @@ dim(du)
 
 cor(du, use = "pairwise.complete.obs")
 
+set.seed(seed)
 dm = file_match(du,
                 var1 = "par1_has_BA",
                 var2 = "X1SES" ) 
 
+colMeans(dm, na.rm = TRUE)
 colMeans(is.na(dm))
 
 
 # ~ Make imputations and compare  -------------------------------------------------
-
 
 # ***THIS WORKS WELL!! FILE-MATCHING HALVES THE COEFFICIENT FOR PUBLIC SCHOOL
 impute_compare(.dm = dm,
                .du = du,
                
                .noms = c("par1_has_BA", "female", "public_school"),
+               .imp.seed = seed,
                #.run.mice = FALSE,
                
                .form.string.dm = "X3TGPAACAD ~ par1_has_BA + X1SES + female + public_school",
