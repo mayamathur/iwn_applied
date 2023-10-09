@@ -1,16 +1,23 @@
 
-
+# expects that the only nominal variable, if any, is public school
 impute_compare = function(.dm,
                           .du,
                           .m.imp = 10,
+                          .model = "OLS",
                           .form.string.dm = NA,
                           .form.string.du = NA,
                           .coef.of.interest.dm,
                           .coef.of.interest.du) {
   
+  # define nominal vars
+  noms = NULL
+  if ( "public_school" %in% names(.dm) ) noms = "public_school" 
+  
   imps_am_std <<- amelia( as.data.frame(.dm),
                         m=.m.imp,
+                        noms = noms,
                         p2s = 0 ) # don't print output
+  
   
   imp1 = imps_am_std$imputations$imp1
   
@@ -36,15 +43,23 @@ if ( ! is.na(.form.string.dm) & !is.na(.form.string.du) ) {
   
   cat("\n\n ******** REGRESSION: IMPS\n")
   print( fit_regression(form_string = .form.string.dm,
-                 model = "OLS",
+                 model = .model,
                  coef_of_interest = .coef.of.interest.dm,
                  miss_method = "MI",
                  du = NULL,
                  imps = imps_am_std) )
   
   cat("\n\n ******** REGRESSION: UNDERLYING\n")
-  mod = lm( formula = eval(expr = .form.string.du),
-            data = .du )
+  if ( .model == "OLS" ) {
+    mod = lm( formula = eval(expr = .form.string.du),
+              data = .du )
+  }
+  if ( .model == "logistic" ) {
+    mod = glm( formula = eval(expr = .form.string.du),
+               family = "binomial",
+              data = .du )
+  }
+
   summary(mod)
 }
 }

@@ -1,3 +1,4 @@
+
 # PRELIMINARIES ---------------------------------------------------------------
 
 # This script uses renv to preserve the R environment specs (e.g., package versions.)
@@ -62,18 +63,28 @@ setwd(prepped.data.dir)
 d2 = fread("prepped_data.csv")
 
 
-# HIGH SCHOOL LONGITUDINAL STUDY ---------------------------------------------------------------
+# HIGH SCHOOL LONGITUDINAL STUDY: EEMM EXAMPLE ---------------------------------------------------------------
 
-#analysis_vars = c("X2TXMTH", "X3TGPAACAD", "X1SES") # interaction is too weak to work well here
-analysis_vars = c("female", "X2TXMTH", "males_better_math_cont", "public_school") #*kinda works - SAVE
-#analysis_vars = c("female", "X3TGPAACAD", "males_better_math") # also works
-
-cor(d2 %>% select(analysis_vars), use = "pairwise.complete.obs")
+# math scores ~ female * males_better_math_cont
 
 # could make composite of the male/female variables:
 #S1ENGCOMP
 #S1MTHCOMP
 #S1SCICOMP
+
+# analysis_vars = c("X2TXMTH", "X3TGPAACAD", "X1SES") # interaction is too weak to work well here
+# analysis_vars = c("female", "X3TGPAACAD", "males_better_math") # also works
+analysis_vars = c("female", "X2TXMTH", "males_better_math_cont", "public_school") #*kinda works - SAVE
+
+cor(d2 %>% select(analysis_vars), use = "pairwise.complete.obs")
+
+
+# ~ Impose missingness  -------------------------------------------------
+
+# missingness in underlying data on these vars
+# up to 12% missing
+d2 %>% select(analysis_vars) %>%
+  summarise_all( function(x) mean(is.na(x)))
 
 du = d2 %>% select(analysis_vars) %>% na.omit
 dim(du)
@@ -106,10 +117,12 @@ du = du %>% rowwise() %>%
 
 cor(du)
 
-# will only work for binary C
-du %>% group_by(C1) %>%
-  summarise(mean(RC))
+# # will only work for binary C
+# du %>% group_by(C1) %>%
+#   summarise(mean(RC))
 
+
+# ~ Make imputations and compare  -------------------------------------------------
 di_std = du %>% select(A, B, C, D)
 
 # # remove any completely missing observations
@@ -127,13 +140,13 @@ impute_compare(.dm = di_std,
                .form.string.du = "B1 ~ A1*C1",
                .coef.of.interest.du = "A1:C1" )
 
-# just for fun: also include public school
-impute_compare(.dm = di_std,
-               .du = du,
-               .form.string.dm = "B ~ A*C + D",
-               .coef.of.interest.dm = "A:C",
-               .form.string.du = "B1 ~ A1*C1 + D",
-               .coef.of.interest.du = "A1:C1" )
+# # just for fun: also include public school
+# impute_compare(.dm = di_std,
+#                .du = du,
+#                .form.string.dm = "B ~ A*C + D",
+#                .coef.of.interest.dm = "A:C",
+#                .form.string.du = "B1 ~ A1*C1 + D",
+#                .coef.of.interest.du = "A1:C1" )
 
 # still using A,B,C in imputation model here
 impute_compare(.dm = di_std,
@@ -157,4 +170,80 @@ impute_compare(.dm = di_ours,
 
 #bm: should probably average over a large number of imputations
 
+
+
+
+# CONFOUNDER FILE-MATCHING ---------------------------------------------------------------
+
+# ### Test case 1: GPA ~ OVERALL GPA + MATH
+# # works but not super interesting
+# analysis_vars = c("X3TGPAACAD", "X2TXMTH", "public_school")
+# 
+# du = d2 %>% select(analysis_vars)
+# du$noise = rnorm(n=nrow(du))  # temporary way to have a useless, but complete, aux variable to prevent warnings
+# 
+# cor(du, use = "pairwise.complete.obs")
+# 
+# dm = file_match(du,
+#                 var1 = "X3TGPAACAD",
+#                 var2 = "X2TXMTH" ) 
+# 
+# impute_compare(.dm = dm,
+#                .du = du,
+#                .form.string.dm = "public_school ~ X3TGPAACAD + X2TXMTH",
+#                .coef.of.interest.dm = "X2TXMTH",
+#                .form.string.du = "public_school ~ X3TGPAACAD + X2TXMTH",
+#                .coef.of.interest.du = "X2TXMTH" )
+# 
+# # logistic regression - works pretty well; 50% bias
+# impute_compare(.dm = dm,
+#                .du = du,
+#                .model = "logistic",
+#                .form.string.dm = "public_school ~ X3TGPAACAD + X2TXMTH",
+#                .coef.of.interest.dm = "X2TXMTH",
+#                .form.string.du = "public_school ~ X3TGPAACAD + X2TXMTH",
+#                .coef.of.interest.du = "X2TXMTH" )
+
+
+### Test case 2
+
+# some schools report SES while others only report the responding parent's education level
+# building a predictive model for GPA that includes SES/parent education and other variables
+# the coefficients for parental income and for SES will be biased.
+
+table(d2$X2FAMINCOME)
+table(d2$X2PAR1EDU)
+table(d2$X1SES)
+
+
+### Test case 1
+analysis_vars = c("X3TGPAACAD", "par1_has_BA", "X1SES", "female", "public_school")
+
+du = d2 %>% select(analysis_vars)
+du$noise = rnorm(n=nrow(du))  #@temporary way to have a useless, but complete, aux variable to prevent warnings
+
+cor(du, use = "pairwise.complete.obs")
+
+dm = file_match(du,
+                var1 = "par1_has_BA",
+                var2 = "X1SES" ) 
+
+impute_compare(.dm = dm,
+               .du = du,
+               .form.string.dm = "X3TGPAACAD ~ par1_has_BA + X1SES + female + public_school",
+               .coef.of.interest.dm = "X1SES",
+               .form.string.du = "X3TGPAACAD ~ par1_has_BA + X1SES + female + public_school",
+               .coef.of.interest.du = "X1SES" )
+
+
+# ***THIS WORKS WELL!! FILE-MATCHING HALVES THE COEFFICIENT FOR PUBLIC SCHOOL
+impute_compare(.dm = dm,
+               .du = du,
+               .form.string.dm = "X3TGPAACAD ~ par1_has_BA + X1SES + female + public_school",
+               .coef.of.interest.dm = "public_school",
+               .form.string.du = "X3TGPAACAD ~ par1_has_BA + X1SES + female + public_school",
+               .coef.of.interest.du = "public_school" )
+
+
+# alternative: race is complete, so use that
 

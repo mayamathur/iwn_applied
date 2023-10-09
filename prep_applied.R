@@ -105,7 +105,7 @@ d2 = d2 %>% select( -where(~ all(is.na(.)) ) )
 
 
 # keep only a subset of variables
-keeper_prefixes = c("S1|S3|X2|X3")
+keeper_prefixes = c("S1|S3|X1|X2|X3")
 # W3 variables are sampling weights; remove them too
 d2 = d2 %>% select(matches(keeper_prefixes)) %>%
      select( -matches("W3HS"))
@@ -170,7 +170,16 @@ d2$public_school = dplyr::recode( d2$X2CONTROL,
                                   `(2) Catholic or other private` = 0)
 
 
+table(d2$X1PAR1EDU)
+d2$par1_has_BA = dplyr::recode( d2$X1PAR1EDU,
+                                `(1) Less than high school` = 0,
+                                `(2) High school diploma or GED` = 0,
+                                `(3) Associate's degree` = 0,
+                                `(4) Bachelor's degree` = 1,
+                                `(5) Master's degree` = 1,
+                                `(7) Ph.D/M.D/Law/other high lvl prof degree` = 1)
 
+cor(d2$X1SES, d2$par1_has_BA, use = "pairwise.complete.obs")
 
 
 # save prepped dataset
