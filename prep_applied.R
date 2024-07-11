@@ -66,6 +66,9 @@ setwd("/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (I
 # do not load renv package before doing this
 # yields errors if so
 load("36423-0002-Data.rda")
+dim(da36423.0002)
+# check sample size against docs: https://www.icpsr.umich.edu/web/NADAC/studies/36423/summary
+expect_equal(nrow(da36423.0002), 23503) 
 
 # some vars are always NA?
 any(names(da36423.0002) == "A1SINGLESEX")

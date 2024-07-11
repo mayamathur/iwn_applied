@@ -98,6 +98,7 @@ d2 %>% select(analysis_vars) %>%
 du = d2 %>% select(analysis_vars) %>% na.omit
 dim(du)
 
+# respectively: female, X2TXMTH, males_better, public_school
 names(du) = c("A1", "B1", "C1", "D1")
 cor(du)
 
