@@ -68,52 +68,13 @@ options(scipen=999)
 seed = 123
 
 
-# Read in data  -------------------------------------------------
-
+# read in prepped data
 setwd(prepped.data.dir)
 d2 = fread("prepped_data.csv")
 
 
 
-
-# CONFOUNDER FILE-MATCHING ---------------------------------------------------------------
-
-# ### Test case 1: GPA ~ OVERALL GPA + MATH
-# # works but not super interesting
-# analysis_vars = c("X3TGPAACAD", "X2TXMTH", "public_school")
-# 
-# du = d2 %>% select(analysis_vars)
-# du$noise = rnorm(n=nrow(du))  # temporary way to have a useless, but complete, aux variable to prevent warnings
-# 
-# cor(du, use = "pairwise.complete.obs")
-# 
-# dm = file_match(du,
-#                 var1 = "X3TGPAACAD",
-#                 var2 = "X2TXMTH" ) 
-# 
-# impute_compare(.dm = dm,
-#                .du = du,
-#                .form.string.dm = "public_school ~ X3TGPAACAD + X2TXMTH",
-#                .coef.of.interest.dm = "X2TXMTH",
-#                .form.string.du = "public_school ~ X3TGPAACAD + X2TXMTH",
-#                .coef.of.interest.du = "X2TXMTH" )
-# 
-# # logistic regression - works pretty well; 50% bias
-# impute_compare(.dm = dm,
-#                .du = du,
-#                .model = "logistic",
-#                .form.string.dm = "public_school ~ X3TGPAACAD + X2TXMTH",
-#                .coef.of.interest.dm = "X2TXMTH",
-#                .form.string.du = "public_school ~ X3TGPAACAD + X2TXMTH",
-#                .coef.of.interest.du = "X2TXMTH" )
-
-
-### Test case 2
-
-# some schools report SES while others only report the responding parent's education level
-# building a predictive model for GPA that includes SES/parent education and other variables
-# the coefficients for parental income and for SES will be biased.
-
+# CONFOUNDER FILE-MATCHING EXAMPLE ---------------------------------------------------------------
 
 # ~ Descriptives  -------------------------------------------------
 
@@ -147,7 +108,6 @@ colMeans(is.na(dm))
 
 # ~ Make imputations and compare  -------------------------------------------------
 
-# ***THIS WORKS WELL!! FILE-MATCHING HALVES THE COEFFICIENT FOR PUBLIC SCHOOL
 impute_compare(.dm = dm,
                .du = du,
                
