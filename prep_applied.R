@@ -43,28 +43,50 @@ for (pkg in to.load) {
 # renv::snapshot()
 
 
+# set working directories
+code.dir = here()
+
+# if you need to go up a level in parent directory
+( sim.code.dir = str_replace_all( string = here(),
+                              pattern = "Applied example/Code",
+                              replacement = "Simulation study/Code" ) )
+# check it
+setwd(sim.code.dir)
+
+
 # get helper fns
-setwd( here() )
+setwd(code.dir)
 source("helper_applied_IWN.R")
 
 # get fns from sim study
-setwd("/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Simulation code")
+setwd(sim.code.dir)
 source("helper_IWN.R")
 
-prepped.data.dir = "/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/Prepped data"
+# dataset cannot be released in our repo per terms of use
+# see READ-ME for how to easily access it yourself (free)
+( private.data.dir = str_replace_all( string = here(),
+                                  pattern = "Linked to OSF \\(IWN\\)/Applied example/Code",
+                                  replacement = "Not linked to OSF/Private data for applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/ICPSR_36423 2/DS0002" ) )
+# check it
+setwd(private.data.dir)
+
+prepped.data.dir = str_replace_all( string = here(),
+                                    pattern = "Linked to OSF \\(IWN\\)/Applied example/Code",
+                                    replacement = "Not linked to OSF/Private data for applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/Prepped data" )
+# check it
+setwd(prepped.data.dir)
 
 # no sci notation
 options(scipen=999)
 
 
-# HIGH SCHOOL LONGITUDINAL STUDY ---------------------------------------------------------------
 
-
-# ~ Read in and subset (enormous) raw data ------------------------------
-setwd("/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/ICPSR_36423 2/DS0002")
+# READ IN AND SUBSET DATA ------------------------------
+setwd(private.data.dir)
 
 # do not load renv package before doing this
 # yields errors if so
+# dataset is enormous, so takes a while
 load("36423-0002-Data.rda")
 dim(da36423.0002)
 # check sample size against docs: https://www.icpsr.umich.edu/web/NADAC/studies/36423/summary
@@ -75,12 +97,7 @@ any(names(da36423.0002) == "A1SINGLESEX")
 table( da36423.0002$A1SINGLESEX )
 
 
-# # merge in base-year data
-# setwd("/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/ICPSR_36423 2/DS0001")
-# load("36423-0001-Data.rda")
-# d1 = da36423.0001
-
-# keep only first 5,000 rows
+# keep only first 5,000 rows for computational tractability
 d = da36423.0002[1:5000,]
 
 
@@ -89,15 +106,13 @@ setwd(prepped.data.dir)
 fwrite(d, "interm_prepped_data_1.csv")
 
 
-# ~ Remove unwanted variables ------------------------------
+# REMOVE UNWANTED VARIABLES ------------------------------
 
 # read in intermediate dataset
 setwd(prepped.data.dir)
 d = fread("interm_prepped_data_1.csv")
 
-
-# missing values
-#@will need to check if these truly are missing values for all analysis vars
+# recode missing values
 d2 = d
 d2 = d2 %>%  mutate_if( is.numeric,
                         list(~ case_when(. %in% c(-9, -8, -7, -5, -4, -1) ~ NA_real_, TRUE ~ .)) )
@@ -105,14 +120,11 @@ d2 = d2 %>%  mutate_if( is.numeric,
 # remove vars that are always NA
 d2 = d2 %>% select( -where(~ all(is.na(.)) ) )
 
-
-
 # keep only a subset of variables
 keeper_prefixes = c("S1|S3|X1|X2|X3")
 # W3 variables are sampling weights; remove them too
 d2 = d2 %>% select(matches(keeper_prefixes)) %>%
      select( -matches("W3HS"))
-
 
 # save intermediate dataset
 setwd(prepped.data.dir)
@@ -120,8 +132,7 @@ fwrite(d2, "interm_prepped_data_2.csv")
 
 
 
-# ~ Recode variables ------------------------------
-
+# RECODE VARIABLES ------------------------------
 
 # read in intermediate dataset
 setwd(prepped.data.dir)
@@ -190,7 +201,7 @@ setwd(prepped.data.dir)
 fwrite(d2, "prepped_data.csv")
 
 
-# ~ Explore -------------------------------------------------
+# EXPLORE -------------------------------------------------
 
 corrs = d2 %>%
   corrr::correlate( use = "pairwise.complete.obs" ) %>%
@@ -207,15 +218,7 @@ View(corrs)
 fwrite(corrs, "corrs.csv")
 
 
-
-# # focus on student variables
-# keeper_prefixes = c("S1|S2")
-# corrs2 = corrs %>% filter(str_detect(x, keeper_prefixes) | str_detect(y, keeper_prefixes))
-# View(corrs2)
-# 
-# write.xlsx(corrs2, "corrs2.xlsx")
-
-# strong corrs
+# strong correlations
 corrs2 = filter_corrs( .corrs = corrs,
                        .contains = "S1|S2",
                        .min_cor_magnitude = 0.5)

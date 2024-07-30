@@ -44,15 +44,23 @@ for (pkg in to.load) {
 
 
 # get helper fns
-setwd( here() )
+setwd(here())
 source("helper_applied_IWN.R")
 
 # get fns from sim study
-setwd("/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Simulation code")
+( sim.code.dir = str_replace_all( string = here(),
+                                  pattern = "Applied example/Code",
+                                  replacement = "Simulation study/Code" ) )
+setwd(sim.code.dir)
 source("helper_IWN.R")
 
-prepped.data.dir = "/Users/mmathur/Dropbox/Personal computer/Independent studies/2023/*IWN (Imputation without nightMARs)/Applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/Prepped data"
-
+# dataset cannot be released in our repo per terms of use
+# see READ-ME for how to easily access it yourself (free)
+prepped.data.dir = str_replace_all( string = here(),
+                                    pattern = "Linked to OSF \\(IWN\\)/Applied example/Code",
+                                    replacement = "Not linked to OSF/Private data for applied example/NADAC High School Longitudinal Study, 2009-2013 [United States] (ICPSR 36423)/Prepped data" )
+# check it
+setwd(prepped.data.dir)
 # no sci notation
 options(scipen=999)
 
